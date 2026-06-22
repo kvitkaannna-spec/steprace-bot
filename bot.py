@@ -683,6 +683,19 @@ def start_health_server():
 
 # ---------- MAIN ----------
 
+async def _on_startup(app: Application):
+    """Выполняется уже внутри работающего event loop python-telegram-bot,
+    поэтому scheduler можно безопасно стартовать здесь (на Python 3.14
+    AsyncIOScheduler.start() требует наличие активного running loop)."""
+    scheduler = AsyncIOScheduler(timezone=MSK_TZ)
+    scheduler.add_job(
+        lambda: app.create_task(send_reminders(app)),
+        CronTrigger(hour=8, minute=50, timezone=MSK_TZ),
+    )
+    scheduler.start()
+    logger.info("Планировщик напоминаний запущен (08:50 МСК).")
+
+
 def main():
     if not TOKEN:
         raise RuntimeError(
@@ -692,7 +705,7 @@ def main():
     db.init_db()
     start_health_server()
 
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).post_init(_on_startup).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", lambda u, c: send_help(u)))
@@ -713,13 +726,6 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_delrival, pattern=r"^delrival:"))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-    scheduler = AsyncIOScheduler(timezone=MSK_TZ)
-    scheduler.add_job(
-        lambda: app.create_task(send_reminders(app)),
-        CronTrigger(hour=8, minute=50, timezone=MSK_TZ),
-    )
-    scheduler.start()
 
     logger.info("StepRace bot запущен.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
